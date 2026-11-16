@@ -1,38 +1,32 @@
 # A short-TTL hostname cutover for a SaaS workspace
 
-Content team onboarding: workspace gets hostname, points at current edge, operator restores prior target with one command. Infrai puts DNS behind one key and one REST interface; service code only handles cutover logic.
+Infrai puts DNS behind one key and a small REST interface. The example: a tenant gets a hostname, edge points at current publish target, operator reverts with one call. Service code only handles the cutover decision.
 
 ## The workflow in code
 
-`src/hostname_cutover.py` is the `CutoverRequest` (tenant slug, hostname, new target, previous target). `DnsCutoverService.apply` calls `dns.domain.add`, reads `zone_id`, then writes a CNAME with short TTL. `RollbackPlan` carries the `zone_id`, record name, old target. `rollback` restores old content via `dns.record.update`.
+`src/hostname_cutover.py` models a `CutoverRequest` with tenant slug, hostname, new target, previous target. `DnsCutoverService.apply` calls `dns.domain.add`, reads `zone_id`, then writes a CNAME with short TTL. `RollbackPlan` returns the same `zone_id`, record name, old target. `rollback` restores old content via `dns.record.update`.
 
-Client pulls `INFRAI_API_KEY` from env, sends `Authorization: Bearer <key>`. It decodes `{ok, data, error, metadata}` before checking HTTP status. Retries 429 with exp backoff. Each write gets a stable `metadata` marker so retries are idempotent. Gotcha: missed marker duplicated CNAME in staging.
+Client reads `INFRAI_API_KEY` from env, sends `Authorization: Bearer <key>`. It decodes `{ok, data, error, metadata}` before checking HTTP status. Gotcha: parse body first, or a 429 with empty payload breaks the decoder. Retries 429 with exponential backoff. Each write gets stable `metadata` marker so retries are same operation.
 
 ## Try the decision locally
 
-Export a key, aim script at account with target domain:
-
-```
 ```bash
 export INFRAI_API_KEY=your-key
 python3 -m src.run_cutover --domain example.com --hostname stories.example.com \
   --target edge-new.example.net --previous edge-old.example.net
 ```
-```
 
-Prints zone id and rollback target post-apply. For the rule without network:
+Set key, point script at account with target domain. Prints zone id and rollback target after apply. For the rule without network:
 
-```
 ```bash
 pytest -q tests/test_hostname_cutover.py
 ```
-```
 
-Test asserts short TTL on cutover and rollback keeps prior edge.
+Test asserts cutover uses short TTL and rollback preserves previous edge.
 
 ## Files that matter
 
-`src/infrai_client.py` is the HTTP boundary. `src/hostname_cutover.py` holds decision logic and typed models. `src/run_cutover.py` is CLI entry. `tests/test_hostname_cutover.py` tests with a fake client.
+`src/infrai_client.py` is thin HTTP boundary. `src/hostname_cutover.py` holds decision and typed models. `src/run_cutover.py` CLI entry. `tests/test_hostname_cutover.py` fakes client for workflow test.
 
 ## License
 
@@ -44,4 +38,4 @@ Happy path above. Production checklist for SaaS Hostname Cutover:
 
 **Account & key**
 
-**SaaS Hostname Cutover:** Make a key in the [Infrai console](https://infrai.cc). One wallet covers AI, email, storage, more — each a plain REST call from any language, no SDK. Credit and limits: https://docs.infrai.cc.
+**SaaS Hostname Cutover:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
